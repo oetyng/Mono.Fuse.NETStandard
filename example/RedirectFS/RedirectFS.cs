@@ -33,200 +33,170 @@
 
 using System;
 using System.Collections.Generic;
-using System.Diagnostics;
-using System.Runtime.InteropServices;
 using System.Text;
-using Mono.Fuse.NETStandard;
 using Mono.Unix.Native;
 
-namespace Mono.Fuse.NETStandard.Samples {
-	class RedirectFS : FileSystem {
+namespace Mono.Fuse.NETStandard.Samples
+{
+	class RedirectFS : FileSystem
+    {
+		string _basedir;
 
-		private string basedir;
+		public RedirectFS()
+		{ }
 
-		public RedirectFS ()
+		protected override Errno OnGetPathStatus(string path, out Stat buf)
 		{
+			int r = Syscall.lstat(_basedir + path, out buf);
+            return GetResult(r);
 		}
 
-		protected override Errno OnGetPathStatus (string path, out Stat buf)
+		protected override Errno OnAccessPath(string path, AccessModes mask)
 		{
-			int r = Syscall.lstat (basedir+path, out buf);
-			if (r == -1)
-				return Stdlib.GetLastError ();
-			return 0;
+			int r = Syscall.access(_basedir + path, mask);
+			return GetResult(r);
 		}
 
-		protected override Errno OnAccessPath (string path, AccessModes mask)
-		{
-			int r = Syscall.access (basedir+path, mask);
-			if (r == -1)
-				return Stdlib.GetLastError ();
-			return 0;
-		}
-
-		protected override Errno OnReadSymbolicLink (string path, out string target)
+		protected override Errno OnReadSymbolicLink(string path, out string target)
 		{
 			target = null;
-			StringBuilder buf = new StringBuilder (256);
-			do {
-				int r = Syscall.readlink (basedir+path, buf);
-				if (r < 0) {
-					return Stdlib.GetLastError ();
-				}
-				else if (r == buf.Capacity) {
+			var buf = new StringBuilder(256);
+			do
+            {
+				int r = Syscall.readlink(_basedir + path, buf);
+				if (r < 0)
+					return Stdlib.GetLastError();
+				else if (r == buf.Capacity)
 					buf.Capacity *= 2;
-				}
-				else {
+				else
+                {
 					target = buf.ToString (0, r);
 					return 0;
 				}
 			} while (true);
 		}
 
-		protected override Errno OnReadDirectory (string path, OpenedPathInfo fi,
+		protected override Errno OnReadDirectory(string path, OpenedPathInfo fi,
 				out IEnumerable<DirectoryEntry> paths)
 		{
-			IntPtr dp = Syscall.opendir (basedir+path);
-			if (dp == IntPtr.Zero) {
+			IntPtr dp = Syscall.opendir(_basedir+path);
+			if (dp == IntPtr.Zero)
+            {
 				paths = null;
-				return Stdlib.GetLastError ();
+				return Stdlib.GetLastError();
 			}
 
 			Dirent de;
-			List<DirectoryEntry> entries = new List<DirectoryEntry> ();
-			while ((de = Syscall.readdir (dp)) != null) {
-				DirectoryEntry e = new DirectoryEntry (de.d_name);
-				e.Stat.st_ino  = de.d_ino;
-				e.Stat.st_mode = (FilePermissions) (de.d_type << 12);
-				entries.Add (e);
+			var entries = new List<DirectoryEntry>();
+			while ((de = Syscall.readdir(dp)) != null)
+            {
+				var entry = new DirectoryEntry(de.d_name);
+				entry.Stat.st_ino  = de.d_ino;
+				entry.Stat.st_mode = (FilePermissions)(de.d_type << 12);
+				entries.Add(entry);
 			}
-			Syscall.closedir (dp);
+			Syscall.closedir(dp);
 
 			paths = entries;
 			return 0;
 		}
 
-		protected override Errno OnCreateSpecialFile (string path, FilePermissions mode, ulong rdev)
+		protected override Errno OnCreateSpecialFile(string path, FilePermissions mode, ulong rdev)
 		{
 			int r;
 
 			// On Linux, this could just be `mknod(basedir+path, mode, rdev)' but this is
 			// more portable.
-			if ((mode & FilePermissions.S_IFMT) == FilePermissions.S_IFREG) {
-				r = Syscall.open (basedir+path, OpenFlags.O_CREAT | OpenFlags.O_EXCL |
+			if ((mode & FilePermissions.S_IFMT) == FilePermissions.S_IFREG)
+            {
+				r = Syscall.open(_basedir + path, OpenFlags.O_CREAT | OpenFlags.O_EXCL |
 						OpenFlags.O_WRONLY, mode);
 				if (r >= 0)
-					r = Syscall.close (r);
+					r = Syscall.close(r);
 			}
-			else if ((mode & FilePermissions.S_IFMT) == FilePermissions.S_IFIFO) {
-				r = Syscall.mkfifo (basedir+path, mode);
-			}
-			else {
-				r = Syscall.mknod (basedir+path, mode, rdev);
-			}
+			else if ((mode & FilePermissions.S_IFMT) == FilePermissions.S_IFIFO)
+				r = Syscall.mkfifo(_basedir+path, mode);
+			else
+				r = Syscall.mknod(_basedir+path, mode, rdev);
 
-			if (r == -1)
-				return Stdlib.GetLastError ();
+            return GetResult(r);
+        }
 
-			return 0;
-		}
-
-		protected override Errno OnCreateDirectory (string path, FilePermissions mode)
+		protected override Errno OnCreateDirectory(string path, FilePermissions mode)
 		{
-			int r = Syscall.mkdir (basedir+path, mode);
-			if (r == -1)
-				return Stdlib.GetLastError ();
-			return 0;
-		}
+			int r = Syscall.mkdir(_basedir + path, mode);
+            return GetResult(r);
+        }
 
-		protected override Errno OnRemoveFile (string path)
+		protected override Errno OnRemoveFile(string path)
 		{
-			int r = Syscall.unlink (basedir+path);
-			if (r == -1)
-				return Stdlib.GetLastError ();
-			return 0;
-		}
+			int r = Syscall.unlink(_basedir + path);
+            return GetResult(r);
+        }
 
-		protected override Errno OnRemoveDirectory (string path)
+		protected override Errno OnRemoveDirectory(string path)
 		{
-			int r = Syscall.rmdir (basedir+path);
-			if (r == -1)
-				return Stdlib.GetLastError ();
-			return 0;
-		}
+			int r = Syscall.rmdir(_basedir + path);
+            return GetResult(r);
+        }
 
-		protected override Errno OnCreateSymbolicLink (string from, string to)
+		protected override Errno OnCreateSymbolicLink(string from, string to)
 		{
-			int r = Syscall.symlink (from, basedir+to);
-			if (r == -1)
-				return Stdlib.GetLastError ();
-			return 0;
-		}
+			int r = Syscall.symlink(from, _basedir + to);
+            return GetResult(r);
+        }
 
-		protected override Errno OnRenamePath (string from, string to)
+		protected override Errno OnRenamePath(string from, string to)
 		{
-			int r = Syscall.rename (basedir+from, basedir+to);
-			if (r == -1)
-				return Stdlib.GetLastError ();
-			return 0;
-		}
+			int r = Syscall.rename(_basedir + from, _basedir+to);
+            return GetResult(r);
+        }
 
-		protected override Errno OnCreateHardLink (string from, string to)
+		protected override Errno OnCreateHardLink(string from, string to)
 		{
-			int r = Syscall.link (basedir+from, basedir+to);
-			if (r == -1)
-				return Stdlib.GetLastError ();
-			return 0;
-		}
+			int r = Syscall.link(_basedir + from, _basedir+to);
+            return GetResult(r);
+        }
 
-		protected override Errno OnChangePathPermissions (string path, FilePermissions mode)
+		protected override Errno OnChangePathPermissions(string path, FilePermissions mode)
 		{
-			int r = Syscall.chmod (basedir+path, mode);
-			if (r == -1)
-				return Stdlib.GetLastError ();
-			return 0;
-		}
+			int r = Syscall.chmod(_basedir + path, mode);
+            return GetResult(r);
+        }
 
-		protected override Errno OnChangePathOwner (string path, long uid, long gid)
+		protected override Errno OnChangePathOwner(string path, long uid, long gid)
 		{
-			int r = Syscall.lchown (basedir+path, (uint) uid, (uint) gid);
-			if (r == -1)
-				return Stdlib.GetLastError ();
-			return 0;
-		}
+			int r = Syscall.lchown(_basedir + path, (uint) uid, (uint) gid);
+            return GetResult(r);
+        }
 
-		protected override Errno OnTruncateFile (string path, long size)
+		protected override Errno OnTruncateFile(string path, long size)
 		{
-			int r = Syscall.truncate (basedir+path, size);
-			if (r == -1)
-				return Stdlib.GetLastError ();
-			return 0;
-		}
+			int r = Syscall.truncate(_basedir + path, size);
+            return GetResult(r);
+        }
 
-		protected override Errno OnChangePathTimes (string path, ref Utimbuf buf)
+		protected override Errno OnChangePathTimes(string path, ref Utimbuf buf)
 		{
-			int r = Syscall.utime (basedir+path, ref buf);
-			if (r == -1)
-				return Stdlib.GetLastError ();
-			return 0;
-		}
+			int r = Syscall.utime(_basedir + path, ref buf);
+            return GetResult(r);
+        }
 
-		protected override Errno OnOpenHandle (string path, OpenedPathInfo info)
-		{
-			return ProcessFile (basedir+path, info.OpenFlags, delegate (int fd) {return 0;});
-		}
+		protected override Errno OnOpenHandle(string path, OpenedPathInfo info)
+		    => ProcessFile(_basedir + path, info.OpenFlags, delegate (int fd) {return 0;});
 
-		private delegate int FdCb (int fd);
-		private static Errno ProcessFile (string path, OpenFlags flags, FdCb cb)
+		delegate int FdCb (int fd);
+
+		static Errno ProcessFile(string path, OpenFlags flags, FdCb cb)
 		{
-			int fd = Syscall.open (path, flags);
+			int fd = Syscall.open(path, flags);
 			if (fd == -1)
-				return Stdlib.GetLastError ();
-			int r = cb (fd);
+				return Stdlib.GetLastError();
+			int r = cb(fd);
 			Errno res = 0;
 			if (r == -1)
-				res = Stdlib.GetLastError ();
-			Syscall.close (fd);
+				res = Stdlib.GetLastError();
+			Syscall.close(fd);
 			return res;
 		}
 
@@ -234,9 +204,11 @@ namespace Mono.Fuse.NETStandard.Samples {
 				long offset, out int bytesRead)
 		{
 			int br = 0;
-			Errno e = ProcessFile (basedir+path, OpenFlags.O_RDONLY, delegate (int fd) {
-				fixed (byte *pb = buf) {
-					return br = (int) Syscall.pread (fd, pb, (ulong) buf.Length, offset);
+			Errno e = ProcessFile(_basedir+path, OpenFlags.O_RDONLY, delegate (int fd) 
+            {
+				fixed (byte *pb = buf)
+                {
+					return br = (int)Syscall.pread(fd, pb, (ulong) buf.Length, offset);
 				}
 			});
 			bytesRead = br;
@@ -247,122 +219,110 @@ namespace Mono.Fuse.NETStandard.Samples {
 				byte[] buf, long offset, out int bytesWritten)
 		{
 			int bw = 0;
-			Errno e = ProcessFile (basedir+path, OpenFlags.O_WRONLY, delegate (int fd) {
-				fixed (byte *pb = buf) {
-					return bw = (int) Syscall.pwrite (fd, pb, (ulong) buf.Length, offset);
+			Errno e = ProcessFile(_basedir + path, OpenFlags.O_WRONLY, delegate (int fd) 
+            {
+				fixed (byte *pb = buf)
+                {
+					return bw = (int)Syscall.pwrite(fd, pb, (ulong) buf.Length, offset);
 				}
 			});
 			bytesWritten = bw;
 			return e;
 		}
 
-		protected override Errno OnGetFileSystemStatus (string path, out Statvfs stbuf)
+		protected override Errno OnGetFileSystemStatus(string path, out Statvfs stbuf)
 		{
-			int r = Syscall.statvfs (basedir+path, out stbuf);
-			if (r == -1)
-				return Stdlib.GetLastError ();
-			return 0;
-		}
+			int r = Syscall.statvfs (_basedir + path, out stbuf);
+            return GetResult(r);
+        }
 
-		protected override Errno OnReleaseHandle (string path, OpenedPathInfo info)
+        protected override Errno OnReleaseHandle(string path, OpenedPathInfo info)
+            => 0;
+
+		protected override Errno OnSynchronizeHandle(string path, OpenedPathInfo info, bool onlyUserData)
+            => 0;
+
+        protected override Errno OnSetPathExtendedAttribute(string path, string name, byte[] value, XattrFlags flags)
 		{
-			return 0;
-		}
+			int r = Syscall.lsetxattr(_basedir + path, name, value, (ulong) value.Length, flags);
+            return GetResult(r);
+        }
 
-		protected override Errno OnSynchronizeHandle (string path, OpenedPathInfo info, bool onlyUserData)
+		protected override Errno OnGetPathExtendedAttribute(string path, string name, byte[] value, out int bytesWritten)
 		{
-			return 0;
-		}
+			int r = bytesWritten = (int)Syscall.lgetxattr(_basedir + path, name, value, (ulong) value.Length);
+            return GetResult(r);
+        }
 
-		protected override Errno OnSetPathExtendedAttribute (string path, string name, byte[] value, XattrFlags flags)
+		protected override Errno OnListPathExtendedAttributes(string path, out string[] names)
 		{
-			int r = Syscall.lsetxattr (basedir+path, name, value, (ulong) value.Length, flags);
-			if (r == -1)
-				return Stdlib.GetLastError ();
-			return 0;
-		}
+			int r = (int)Syscall.llistxattr(_basedir + path, out names);
+            return GetResult(r);
+        }
 
-		protected override Errno OnGetPathExtendedAttribute (string path, string name, byte[] value, out int bytesWritten)
+		protected override Errno OnRemovePathExtendedAttribute(string path, string name)
 		{
-			int r = bytesWritten = (int) Syscall.lgetxattr (basedir+path, name, value, (ulong) value.Length);
-			if (r == -1)
-				return Stdlib.GetLastError ();
-			return 0;
-		}
+			int r = Syscall.lremovexattr(_basedir + path, name);
+            return GetResult(r);
+        }
 
-		protected override Errno OnListPathExtendedAttributes (string path, out string[] names)
-		{
-			int r = (int) Syscall.llistxattr (basedir+path, out names);
-			if (r == -1)
-				return Stdlib.GetLastError ();
-			return 0;
-		}
-
-		protected override Errno OnRemovePathExtendedAttribute (string path, string name)
-		{
-			int r = Syscall.lremovexattr (basedir+path, name);
-			if (r == -1)
-				return Stdlib.GetLastError ();
-			return 0;
-		}
-
-		protected override Errno OnLockHandle (string file, OpenedPathInfo info, FcntlCommand cmd, ref Flock @lock)
+		protected override Errno OnLockHandle(string file, OpenedPathInfo info, FcntlCommand cmd, ref Flock @lock)
 		{
 			Flock _lock = @lock;
-			Errno e = ProcessFile (basedir+file, info.OpenFlags, fd => Syscall.fcntl (fd, cmd, ref _lock));
+			Errno e = ProcessFile(_basedir + file, info.OpenFlags, fd => Syscall.fcntl (fd, cmd, ref _lock));
 			@lock = _lock;
 			return e;
 		}
 
-		private bool ParseArguments (string[] args)
+		bool ParseArguments(string[] args)
 		{
-			for (int i = 0; i < args.Length; ++i) {
-				switch (args [i]) {
+			for (int i = 0; i < args.Length; ++i)
+            {
+				switch (args[i])
+                {
 					case "-h":
 					case "--help":
-						ShowHelp ();
+						ShowHelp();
 						return false;
 					default:
 						if (base.MountPoint == null)
-							base.MountPoint = args [i];
+							base.MountPoint = args[i];
 						else
-							basedir = args [i];
+							_basedir = args[i];
 						break;
 				}
 			}
-			if (base.MountPoint == null) {
-				return Error ("missing mountpoint");
-			}
-			if (basedir == null) {
-				return Error ("missing basedir");
-			}
+			if (base.MountPoint == null)
+				return Error("missing mountpoint");
+			if (_basedir == null)
+				return Error("missing basedir");
 			return true;
 		}
 
-		private static void ShowHelp ()
+		static void ShowHelp()
 		{
-			Console.Error.WriteLine ("usage: redirectfs [options] mountpoint basedir:");
-			FileSystem.ShowFuseHelp ("redirectfs");
-			Console.Error.WriteLine ();
-			Console.Error.WriteLine ("redirectfs options:");
-			Console.Error.WriteLine ("    basedir                Directory to mirror");
+			Console.Error.WriteLine("usage: redirectfs [options] mountpoint basedir:");
+			FileSystem.ShowFuseHelp("redirectfs");
+			Console.Error.WriteLine();
+			Console.Error.WriteLine("redirectfs options:");
+			Console.Error.WriteLine("    basedir                Directory to mirror");
 		}
 
-		private static bool Error (string message)
+		static bool Error(string message)
 		{
-			Console.Error.WriteLine ("redirectfs: error: {0}", message);
+			Console.Error.WriteLine("redirectfs: error: {0}", message);
 			return false;
 		}
 
 		public static void Main (string[] args)
 		{
-			using (RedirectFS fs = new RedirectFS ()) {
-				string[] unhandled = fs.ParseFuseArguments (args);
-				if (!fs.ParseArguments (unhandled))
-					return;
-				fs.Start ();
-			}
+            using (var fs = new RedirectFS())
+            {
+                string[] unhandled = fs.ParseFuseArguments(args);
+                if (!fs.ParseArguments(unhandled))
+                    return;
+                fs.Start();
+            }
 		}
 	}
 }
-

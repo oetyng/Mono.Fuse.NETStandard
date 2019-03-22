@@ -32,41 +32,35 @@ using Mono.Unix;
 
 namespace Mono.Fuse.NETStandard {
 
-	class FileNameMarshaler : ICustomMarshaler {
+	class FileNameMarshaler : ICustomMarshaler
+    {
+		readonly static FileNameMarshaler Instance = new FileNameMarshaler();
 
-		private static FileNameMarshaler Instance = new FileNameMarshaler ();
+		public static ICustomMarshaler GetInstance(string s)
+			=> Instance;
 
-		public static ICustomMarshaler GetInstance (string s)
+		public void CleanUpManagedData(object o)
+		{ }
+
+		public void CleanUpNativeData(IntPtr pNativeData)
 		{
-			return Instance;
+			// Console.WriteLine("# FileNameMarshaler.CleanUpManagedData ({0:x})", pNativeData);
+			UnixMarshal.FreeHeap(pNativeData);
 		}
 
-		public void CleanUpManagedData (object o)
-		{
-		}
+		public int GetNativeDataSize() => IntPtr.Size;
 
-		public void CleanUpNativeData (IntPtr pNativeData)
-		{
-			// Console.WriteLine ("# FileNameMarshaler.CleanUpManagedData ({0:x})", pNativeData);
-			UnixMarshal.FreeHeap (pNativeData);
-		}
-
-		public int GetNativeDataSize ()
-		{
-			return IntPtr.Size;
-		}
-
-		public IntPtr MarshalManagedToNative (object obj)
+		public IntPtr MarshalManagedToNative(object obj)
 		{
 			string s = obj as string;
 			if (s == null)
 				return IntPtr.Zero;
-			IntPtr p = UnixMarshal.StringToHeap (s, UnixEncoding.Instance);
+			IntPtr p = UnixMarshal.StringToHeap(s, UnixEncoding.Instance);
 			// Console.WriteLine ("# FileNameMarshaler.MarshalNativeToManaged for `{0}'={1:x}", s, p);
 			return p;
 		}
 
-		public object MarshalNativeToManaged (IntPtr pNativeData)
+		public object MarshalNativeToManaged(IntPtr pNativeData)
 		{
 			string s = UnixMarshal.PtrToString (pNativeData, UnixEncoding.Instance);
 			// Console.WriteLine ("# FileNameMarshaler.MarshalNativeToManaged ({0:x})=`{1}'",
